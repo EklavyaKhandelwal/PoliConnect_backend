@@ -1,0 +1,7 @@
+dist/
+storage/
+node_modules/
+.idea/
+.env
+.env.*
+!.env.example
