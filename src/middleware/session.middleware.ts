@@ -25,7 +25,15 @@ export async function sessionMiddleware(req: Request, res: Response, next: NextF
       if (!process.env.JWT_SECRET) {
         return res.status(500).json({ error: "JWT_SECRET is not configured" });
       }
-      const payload = jwt.verify(authToken, process.env.JWT_SECRET) as { userId: string };
+      const payload = jwt.verify(authToken, process.env.JWT_SECRET);
+      if (
+        typeof payload === "string" ||
+        payload.tokenType === "admin" ||
+        typeof payload.userId !== "string" ||
+        !Types.ObjectId.isValid(payload.userId)
+      ) {
+        return res.status(401).json({ error: "Invalid or expired auth token." });
+      }
       const userId = new Types.ObjectId(payload.userId);
 
       const session = await sessionRepository.findSessionByUserId(userId);

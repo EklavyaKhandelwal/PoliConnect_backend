@@ -8,6 +8,8 @@ export type Role = "user" | "assistant";
 
 export type Language = "en" | "hi" | "mr";
 
+export type AccountRole = "citizen" | "admin" | "owner";
+
 export type ProviderName =
   | "anthropic"
   | "openai"
@@ -19,6 +21,7 @@ export interface IUser {
   email: string;
   name?: string;
   password: string;
+  role?: AccountRole;
   createdAt?: Date;
   updatedAt?: Date;
 }

@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 const storageRoot = process.env.FILE_STORAGE_DIR || join(process.cwd(), "storage");
@@ -16,4 +16,9 @@ export async function uploadFile(
   await writeFile(destination, buffer);
 
   return `${publicBaseUrl.replace(/\/+$/, "")}/${safePath}`;
+}
+
+export async function deleteFile(path: string): Promise<void> {
+  const safePath = path.replaceAll("\\", "/").replace(/^\/+/, "");
+  await unlink(join(storageRoot, safePath));
 }

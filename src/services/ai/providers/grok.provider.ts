@@ -12,7 +12,7 @@ export class GroqProvider implements ILLMProvider {
   }
 
   async generate(input: LLMGenerateInput): Promise<LLMGenerateOutput> {
-    const { systemPrompt, history, userMessage } = input;
+    const { systemPrompt, history, userMessage, maxTokens } = input;
 
     const completion = await this.client.chat.completions.create({
       model: this.model,
@@ -22,7 +22,7 @@ export class GroqProvider implements ILLMProvider {
         { role: "user", content: userMessage },
       ],
       reasoning_effort: "low",
-        max_tokens: 300,
+        max_tokens: maxTokens ?? 300,
     });
 
     const text = completion.choices[0]?.message?.content ?? "";

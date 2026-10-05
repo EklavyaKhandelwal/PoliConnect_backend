@@ -1,4 +1,4 @@
-import  type { Request, Response } from "express";
+import type { NextFunction, Request, Response } from "express";
 import { Types } from "mongoose";
 import { messageRepository } from "../repositories/message.repository";
 import { conversationRepository } from "../repositories/conversation.repository";
@@ -92,6 +92,8 @@ export async function sendMessage(req: Request, res: Response) {
     userInputText: userContentText,
     responseLanguage: conversation.responseLanguage,
     languageOverrideRequested: languageOverride ?? null,
+    userId: req.session.userId,
+    guestId: req.session.guestId,
   });
   let followUpQuestions: string[] = [];
   try {
@@ -135,21 +137,35 @@ export async function sendMessage(req: Request, res: Response) {
   });
 }
 
-export async function transcribeMessage(req: Request, res: Response) {
- if (!req.file) return res.status(400).json({ error: "file is required" });
+export async function transcribeMessage(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  if (!req.file) return res.status(400).json({ error: "file is required" });
 
- const language = (req.body.responseLanguage || "en") as Language;
- const transcript = await transcribeAudio(
-   req.file.buffer,
-   req.file.originalname,
-   language,
- );
+  try {
+    const language = (req.body.responseLanguage || "en") as Language;
+    const transcript = await transcribeAudio(
+      req.file.buffer,
+      req.file.originalname,
+      language,
+    );
 
- if (!transcript.trim()) {
-   return res.status(422).json({ error: "No speech was detected in the recording" });
- }
+    if (!transcript.trim()) {
+      return res.status(422).json({ error: "No speech was detected in the recording" });
+    }
 
- res.json({ transcript: transcript.trim() });
+    res.json({ transcript: transcript.trim() });
+  } catch (error) {
+    const failure = error as { name?: unknown; status?: unknown; code?: unknown };
+    console.error("[VoiceCall] speech transcription failed:", {
+      name: typeof failure.name === "string" ? failure.name : "UnknownError",
+      status: typeof failure.status === "number" ? failure.status : undefined,
+      code: typeof failure.code === "string" ? failure.code : undefined,
+    });
+    next(error);
+  }
 }
 
 export async function getMessages(req: Request, res: Response) {
