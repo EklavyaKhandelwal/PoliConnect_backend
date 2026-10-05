@@ -1,6 +1,7 @@
-import type { Types } from "mongoose";
+import { Types } from "mongoose";
 import { prompts } from "../../prompts/prompts";
 import { messageRepository } from "../../repositories/message.repository";
+import { ComplaintModel } from "../../models/complaint.model";
 import type { ContextMessage, Language } from "../../types/common.types";
 import { getLLMProvider } from "./providers/providerFactory";
 import { getSourceLabel, needsWebSearch, searchWeb, type WebSearchSource } from "./webSearch.service";
@@ -14,6 +15,8 @@ interface GenerateOptions {
   userInputText: string; 
   responseLanguage: Language;
   languageOverrideRequested?: Language | null;
+  userId: string | null;
+  guestId: string | null;
 }
  
 interface GenerateResult {
@@ -57,7 +60,14 @@ async function buildContextWindow(conversationId: Types.ObjectId): Promise<Conte
 
 export async function generateReply(options: GenerateOptions): Promise<GenerateResult> {
 
-  const { conversationId, userInputText, responseLanguage, languageOverrideRequested } = options;
+  const {
+    conversationId,
+    userInputText,
+    responseLanguage,
+    languageOverrideRequested,
+    userId,
+    guestId,
+  } = options;
 
   const effectiveLanguage = languageOverrideRequested ?? responseLanguage;
   const shouldSearch = needsWebSearch(userInputText);
@@ -76,8 +86,43 @@ export async function generateReply(options: GenerateOptions): Promise<GenerateR
         .join("\n\n")
         .slice(0, 5200)}\n\nUse these sources only for current facts. Do not invent facts not supported by them.`
     : "";
-  const systemPrompt = prompts.citizenAssistanceSystemPrompt(effectiveLanguage) + searchContext;
   const history = await buildContextWindow(conversationId);
+  const complaintTopicPattern =
+    /\b(complaint|complaints|status|track|tracking|filed|report|issue|reference|JHS-\d{4}|road|water|electricity|streetlight|drain)\b|शिकायत|स्थिति|तक्रार|तक्रारी|स्थिती|क्रमांक|अर्ज|सड़क|पानी|बिजली/iu;
+  const complaintContextRequested =
+    complaintTopicPattern.test(userInputText) ||
+    history.slice(-6).some((message) => complaintTopicPattern.test(message.content));
+  let complaintContext = "";
+  if (complaintContextRequested) {
+    const complaintQuery = ComplaintModel.find(
+      userId
+        ? { userId: new Types.ObjectId(userId) }
+        : guestId
+          ? { guestId }
+          : { _id: { $exists: false } },
+    )
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .select("complaintNumber category details location status statusHistory createdAt")
+      .lean();
+    const complaints = await complaintQuery.exec();
+    const complaintData = complaints.map((complaint) => ({
+      complaintNumber: complaint.complaintNumber,
+      category: complaint.category,
+      details: complaint.details.slice(0, 300),
+      area: complaint.location.area ?? "",
+      status: complaint.status,
+      createdAt: complaint.createdAt,
+      latestUpdate: complaint.statusHistory.at(-1)?.message ?? "",
+    }));
+    complaintContext =
+      `\n\nCITIZEN'S OWN COMPLAINT RECORDS (private, verified app data):\n${JSON.stringify(complaintData)}\n` +
+      "Use these records as the only source for the citizen's complaint numbers and current complaint statuses. " +
+      "Never invent a complaint, number, status, location, or update. If there are multiple possible matches, ask which complaint they mean. " +
+      "If no matching record exists, say you could not find it and ask them to verify the complaint number. Never disclose private contact details.";
+  }
+  const systemPrompt =
+    prompts.citizenAssistanceSystemPrompt(effectiveLanguage) + searchContext + complaintContext;
 
   const provider = getLLMProvider();
   const { text } = await provider.generate({

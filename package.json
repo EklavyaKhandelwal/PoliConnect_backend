@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
-    "start": "tsx dist/server.js"
+    "start": "tsx dist/server.js",
+    "admin:bootstrap": "tsx src/scripts/bootstrapAdmin.ts"
   },
   "keywords": [],
   "author": "",

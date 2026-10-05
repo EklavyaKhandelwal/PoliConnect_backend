@@ -12,7 +12,11 @@ export async function transcribeAudio(
   language: Language,
 ): Promise<string> {
   const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) throw new Error("GROQ_API_KEY is not configured");
+  if (!apiKey) {
+    const error = new Error("Speech transcription provider is not configured.");
+    Object.assign(error, { code: "STT_NOT_CONFIGURED" });
+    throw error;
+  }
 
   const formData = new FormData();
   formData.append("file", new Blob([new Uint8Array(audioBuffer)]), filename);
@@ -26,7 +30,12 @@ export async function transcribeAudio(
   });
 
   if (!response.ok) {
-    throw new Error(`transcribeAudio failed: ${response.status} ${await response.text()}`);
+    const error = new Error("Speech transcription provider request failed.");
+    Object.assign(error, {
+      status: response.status,
+      code: "STT_PROVIDER_FAILED",
+    });
+    throw error;
   }
 
   const data = (await response.json()) as { text?: string };

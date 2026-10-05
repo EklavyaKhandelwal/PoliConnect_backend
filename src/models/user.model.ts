@@ -1,5 +1,5 @@
 import {Schema,model, type HydratedDocument} from "mongoose";
-import type { IUser } from "../types/common.types";
+import type { AccountRole, IUser } from "../types/common.types";
 
 
 export type UserDocument = HydratedDocument<IUser>;
@@ -18,6 +18,13 @@ const userSchema = new Schema<IUser>(
       type: String,
       trim: true,
       maxLength: [100, "Name cannot exceed 100 characters."],
+    },
+
+    role: {
+      type: String,
+      enum: ["citizen", "admin", "owner"] satisfies AccountRole[],
+      default: "citizen",
+      required: true,
     },
 
     password: {

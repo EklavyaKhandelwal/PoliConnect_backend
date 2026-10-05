@@ -7,7 +7,11 @@ import { errorMiddleware } from "./middleware/error.middleware";
 
 const app = express();
 
-const configuredOrigins = (process.env.FRONTEND_URL || "http://localhost:5173")
+const configuredOrigins = [
+  process.env.FRONTEND_URL || "http://localhost:5173",
+  process.env.ADMIN_FRONTEND_URL || "http://127.0.0.1:5181",
+]
+  .join(",")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);

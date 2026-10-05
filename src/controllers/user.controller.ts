@@ -51,10 +51,11 @@ async function issueTokens(userId: Types.ObjectId, res: Response): Promise<strin
   await RefreshTokenModel.create({
     tokenHash: hashRefreshToken(refreshToken),
     userId,
+    purpose: "citizen",
     expiresAt,
   });
   res.cookie(REFRESH_COOKIE, refreshToken, cookieOptions);
-  return jwt.sign({ userId: userId.toString() }, getJwtSecret(), {
+  return jwt.sign({ userId: userId.toString(), tokenType: "citizen" }, getJwtSecret(), {
     expiresIn: ACCESS_TOKEN_EXPIRES_IN,
   });
 }
@@ -134,6 +135,7 @@ export async function refresh(req: Request, res: Response) {
   await RefreshTokenModel.create({
     tokenHash: nextHash,
     userId: storedToken.userId,
+    purpose: "citizen",
     expiresAt: new Date(Date.now() + cookieOptions.maxAge),
   });
   storedToken.revokedAt = new Date();
@@ -145,7 +147,7 @@ export async function refresh(req: Request, res: Response) {
 
   res.cookie(REFRESH_COOKIE, nextRefreshToken, cookieOptions);
   res.json({
-    accessToken: jwt.sign({ userId: user._id.toString() }, getJwtSecret(), {
+    accessToken: jwt.sign({ userId: user._id.toString(), tokenType: "citizen" }, getJwtSecret(), {
       expiresIn: ACCESS_TOKEN_EXPIRES_IN,
     }),
     user: publicUser(user),
