@@ -263,5 +263,6 @@ complaintSchema.index(
 complaintSchema.index({ status: 1, createdAt: -1 });
 complaintSchema.index({ category: 1, status: 1, createdAt: -1 });
 complaintSchema.index({ "location.area": 1, status: 1, createdAt: -1 });
+complaintSchema.index({ "activityHistory.createdAt": -1 });
 
 export const ComplaintModel = model<IComplaint>("Complaint", complaintSchema);

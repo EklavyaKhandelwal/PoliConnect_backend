@@ -4,6 +4,7 @@ import mongoose, { Types } from "mongoose";
 import { ComplaintModel, type ComplaintDocument, type ComplaintStatus } from "../models/complaint.model";
 import { DepartmentModel } from "../models/department.model";
 import { OfficerModel } from "../models/officer.model";
+import { AdminSettingsModel, DEFAULT_SLA_WORKING_DAYS } from "../models/adminSettings.model";
 import { addWorkingDays, resumeSlaDeadline } from "../services/complaintSla.service";
 import { deleteFile, uploadFile } from "../services/storage/storage.service";
 
@@ -153,7 +154,12 @@ export const updateAdminComplaint = async (
       const officerId = typeof req.body.officerId === "string" && Types.ObjectId.isValid(req.body.officerId)
         ? new Types.ObjectId(req.body.officerId)
         : null;
-      const workingDays = Number(req.body.slaWorkingDays);
+      const configuredSettings = req.body.slaWorkingDays === undefined
+        ? await AdminSettingsModel.findOne({ scope: "global" }).select("slaWorkingDays").lean().exec()
+        : null;
+      const workingDays = req.body.slaWorkingDays === undefined
+        ? configuredSettings?.slaWorkingDays[complaint.category] ?? DEFAULT_SLA_WORKING_DAYS[complaint.category]
+        : Number(req.body.slaWorkingDays);
       if (!departmentId || !Number.isInteger(workingDays) || workingDays < 1 || workingDays > 60) {
         res.status(400).json({ error: "Choose an active department and a resolution target from 1 to 60 working days." });
         return;

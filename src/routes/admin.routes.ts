@@ -22,6 +22,9 @@ import {
   updateAdminComplaint,
 } from "../controllers/adminComplaintActions.controller";
 import { getAdminOverview } from "../controllers/adminAnalytics.controller";
+import { getAdminSettings, updateAdminSettings } from "../controllers/adminSettings.controller";
+import { getAdminNotifications } from "../controllers/adminNotifications.controller";
+import { getAdminNotificationState, markAdminNotificationsRead } from "../controllers/adminNotificationState.controller";
 import {
   listAdminComplaintFeedback,
   listAdminSuggestions,
@@ -40,6 +43,11 @@ adminRouter.post("/logout", adminLogout);
 adminRouter.get("/me", adminAuthMiddleware, getAdminProfile);
 adminRouter.post("/users", adminAuthMiddleware, ownerOnlyMiddleware, createAdminAccount);
 adminRouter.get("/analytics/overview", adminAuthMiddleware, getAdminOverview);
+adminRouter.get("/settings", adminAuthMiddleware, getAdminSettings);
+adminRouter.put("/settings", adminAuthMiddleware, ownerOnlyMiddleware, updateAdminSettings);
+adminRouter.get("/notifications", adminAuthMiddleware, getAdminNotifications);
+adminRouter.get("/notifications/read-state", adminAuthMiddleware, getAdminNotificationState);
+adminRouter.patch("/notifications/read-state", adminAuthMiddleware, markAdminNotificationsRead);
 adminRouter.get("/suggestions", adminAuthMiddleware, listAdminSuggestions);
 adminRouter.patch("/suggestions/:referenceNumber", adminAuthMiddleware, updateAdminSuggestion);
 adminRouter.get("/feedback", adminAuthMiddleware, listAdminComplaintFeedback);
