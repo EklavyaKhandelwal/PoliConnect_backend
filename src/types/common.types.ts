@@ -22,6 +22,7 @@ export interface IUser {
   name?: string;
   password: string;
   role?: AccountRole;
+  authVersion?: number;
   createdAt?: Date;
   updatedAt?: Date;
 }

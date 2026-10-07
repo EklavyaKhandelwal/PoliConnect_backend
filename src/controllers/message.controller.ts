@@ -10,6 +10,25 @@ import { generateImage } from "../services/ai/imageGen.service";
 import type { InputType, OutputType, Language } from "../types/common.types";
 import { uploadFile } from "../services/storage/storage.service";
 import { describeImage } from "../services/ai/describeImage.service";
+import { runAiOperation } from "../services/ai/aiReliability.service";
+import { randomUUID } from "node:crypto";
+
+const safeFileExtensions: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "image/heic": "heic",
+  "image/heif": "heif",
+  "audio/webm": "webm",
+  "audio/ogg": "ogg",
+  "audio/mp4": "mp4",
+  "audio/mpeg": "mp3",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/aac": "aac",
+  "audio/x-m4a": "m4a",
+};
 
 
 
@@ -34,8 +53,18 @@ export async function sendMessage(req: Request, res: Response) {
     responseLanguage?: Language;
   };
 
-  if (!inputType || !outputType) {
+  if (!["text", "voice", "image"].includes(inputType) ||
+    !["text", "voice", "image"].includes(outputType)) {
     return res.status(400).json({ error: "inputType and outputType are required" });
+  }
+  if (
+    (newConvLanguage !== undefined && !["en", "hi", "mr"].includes(newConvLanguage)) ||
+    (languageOverride !== undefined && !["en", "hi", "mr"].includes(languageOverride))
+  ) {
+    return res.status(400).json({ error: "Choose a supported response language." });
+  }
+  if (inputType === "text" && (typeof text !== "string" || !text.trim() || text.length > 4000)) {
+    return res.status(400).json({ error: "Enter a message of up to 4000 characters." });
   }
 
   let conversation;
@@ -60,32 +89,29 @@ export async function sendMessage(req: Request, res: Response) {
 
   let userContentText: string;
   let userFileUrl: string | null = null;
+  let inputFile: Express.Multer.File | null = null;
 
   if (inputType === "text") {
-    if (!text) return res.status(400).json({ error: "text is required for inputType=text" });
-    userContentText = text;
+    userContentText = text!.trim();
   } else if (inputType === "voice") {
     if (!req.file) return res.status(400).json({ error: "file is required for inputType=voice" });
-    userContentText = await transcribeAudio(req.file.buffer, req.file.originalname, conversation.responseLanguage);
-    userFileUrl = await uploadFile(req.file.buffer, `voice-in/${Date.now()}-${req.file.originalname}`, req.file.mimetype);
+    const file = req.file;
+    userContentText = (await runAiOperation(
+      "speech-transcription",
+      () => transcribeAudio(file.buffer, file.originalname, conversation.responseLanguage),
+    )).slice(0, 4000);
+    inputFile = file;
   } else if (inputType === "image") {
     if (!req.file) return res.status(400).json({ error: "file is required for inputType=image" });
-    userContentText = await describeImage(req.file.buffer, req.file.mimetype);
-    userFileUrl = await uploadFile(req.file.buffer, `image-in/${Date.now()}-${req.file.originalname}`, req.file.mimetype);
+    const file = req.file;
+    userContentText = (await runAiOperation(
+      "image-analysis",
+      () => describeImage(file.buffer, file.mimetype),
+    )).slice(0, 4000);
+    inputFile = file;
   } else {
     return res.status(400).json({ error: "Invalid inputType" });
   }
-
-  await messageRepository.create({
-    conversationId: conversation._id,
-    role: "user",
-    inputType,
-    contentText: userContentText,
-    fileUrl: userFileUrl,
-    languageOverride: false,
-    ...(req.session.userId ? {} : { expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) }),
-  });
-
 
   const { replyText, languageUsed, sources, sourceLabel } = await generateReply({
     conversationId: conversation._id,
@@ -95,23 +121,54 @@ export async function sendMessage(req: Request, res: Response) {
     userId: req.session.userId,
     guestId: req.session.guestId,
   });
+
+  if (inputFile) {
+    const mimeType = inputFile.mimetype.split(";")[0]?.toLowerCase() ?? "";
+    const extension = safeFileExtensions[mimeType] ?? "upload";
+    const folder = inputType === "image" ? "image-in" : "voice-in";
+    userFileUrl = await uploadFile(
+      inputFile.buffer,
+      `${folder}/${randomUUID()}.${extension}`,
+      inputFile.mimetype,
+    );
+  }
+  await messageRepository.create({
+    conversationId: conversation._id,
+    role: "user",
+    inputType,
+    contentText: userContentText,
+    fileUrl: userFileUrl,
+    languageOverride: false,
+    ...(req.session.userId ? {} : { expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) }),
+  });
   let followUpQuestions: string[] = [];
   try {
-    followUpQuestions = await generateFollowUpQuestions(userContentText, replyText, languageUsed);
-  } catch (error) {
-    console.error("Failed to generate follow-up questions:", error);
+    followUpQuestions = await runAiOperation(
+      "follow-up-generation",
+      () => generateFollowUpQuestions(userContentText, replyText, languageUsed),
+    );
+  } catch {
+    console.warn("AI follow-up generation failed; returning the answer without suggestions.");
   }
 
 
   let replyFileUrl: string | null = null;
   if (outputType === "voice") {
     try {
-      replyFileUrl = await generateSpeech(replyText, languageUsed);
-    } catch (error) {
-      console.error("Failed to generate voice answer; returning text answer:", error);
+      replyFileUrl = await runAiOperation(
+        "speech-generation",
+        () => generateSpeech(replyText, languageUsed),
+        60_000,
+      );
+    } catch {
+      console.warn("AI speech generation failed; returning the text answer.");
     }
   } else if (outputType === "image") {
-    replyFileUrl = await generateImage(replyText);
+    try {
+      replyFileUrl = await runAiOperation("image-generation", () => generateImage(replyText));
+    } catch {
+      console.warn("AI image generation failed; returning the text answer.");
+    }
   }
 
   const assistantMessage = await messageRepository.create({
@@ -146,10 +203,9 @@ export async function transcribeMessage(
 
   try {
     const language = (req.body.responseLanguage || "en") as Language;
-    const transcript = await transcribeAudio(
-      req.file.buffer,
-      req.file.originalname,
-      language,
+    const transcript = await runAiOperation(
+      "speech-transcription",
+      () => transcribeAudio(req.file!.buffer, req.file!.originalname, language),
     );
 
     if (!transcript.trim()) {
@@ -159,7 +215,7 @@ export async function transcribeMessage(
     res.json({ transcript: transcript.trim() });
   } catch (error) {
     const failure = error as { name?: unknown; status?: unknown; code?: unknown };
-    console.error("[VoiceCall] speech transcription failed:", {
+    console.warn("[SpeechTranscription] operation failed:", {
       name: typeof failure.name === "string" ? failure.name : "UnknownError",
       status: typeof failure.status === "number" ? failure.status : undefined,
       code: typeof failure.code === "string" ? failure.code : undefined,
@@ -223,7 +279,10 @@ export async function speakMessage(req: Request, res: Response) {
   }
 
   const language = message.responseLanguage || "en";
-  const fileUrl = await generateSpeech(message.contentText, language);
+  const fileUrl = await runAiOperation(
+    "speech-generation",
+    () => generateSpeech(message.contentText, language),
+  );
   const updated = await messageRepository.updateById(message._id, { fileUrl });
 
   res.json({ fileUrl: updated?.fileUrl ?? fileUrl });
@@ -249,6 +308,9 @@ export async function translateMessage(req: Request, res: Response) {
   );
   if (!conversation) return res.status(404).json({ error: "Message not found" });
 
-  const contentText = await translateText(message.contentText, language);
+  const contentText = await runAiOperation(
+    "translation",
+    () => translateText(message.contentText, language),
+  );
   res.json({ contentText, language });
 }

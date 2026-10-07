@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import jwt from "jsonwebtoken";
 import { Types } from "mongoose";
 import { sessionRepository } from "../repositories/session.repository";
+import { UserModel } from "../models/user.model";
 
 const GUEST_HEADER = "x-guest-id";
 
@@ -35,6 +36,16 @@ export async function sessionMiddleware(req: Request, res: Response, next: NextF
         return res.status(401).json({ error: "Invalid or expired auth token." });
       }
       const userId = new Types.ObjectId(payload.userId);
+
+      const user = await UserModel.findById(userId).select("authVersion").exec();
+      const tokenAuthVersion = payload.authVersion === undefined
+        ? 0
+        : typeof payload.authVersion === "number"
+          ? payload.authVersion
+          : Number.NaN;
+      if (!user || tokenAuthVersion !== (user.authVersion ?? 0)) {
+        return res.status(401).json({ error: "This session has ended. Please log in again." });
+      }
 
       const session = await sessionRepository.findSessionByUserId(userId);
       if (!session) {

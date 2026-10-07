@@ -1,5 +1,6 @@
 import type { Language } from "../../types/common.types";
 import { uploadFile } from "../storage/storage.service";
+import { runAiOperation } from "./aiReliability.service";
 import { generateOmnivoiceSpeech } from "./voiceClone/omnivoiceClient";
 
 const GROQ_TTS_URL = "https://api.groq.com/openai/v1/audio/speech";
@@ -24,6 +25,7 @@ async function generateGroqSpeech(text: string): Promise<Buffer> {
       input: text,
       response_format: "wav",
     }),
+    signal: AbortSignal.timeout(30_000),
   });
 
   if (!response.ok) {
@@ -33,7 +35,9 @@ async function generateGroqSpeech(text: string): Promise<Buffer> {
         `Groq TTS model terms have not been accepted. An organization admin must accept them at ${GROQ_TTS_TERMS_URL}`,
       );
     }
-    throw new Error(`Groq TTS failed: ${response.status} ${details}`);
+    const error = new Error("Speech generation provider request failed.");
+    Object.assign(error, { status: response.status });
+    throw error;
   }
 
   return Buffer.from(await response.arrayBuffer());
@@ -43,10 +47,14 @@ export async function generateSpeech(text: string, _language: Language): Promise
   let audioBuffer: Buffer;
 
   try {
-    audioBuffer = await generateOmnivoiceSpeech(text);
-  } catch (error) {
-    console.error("OmniVoice generation failed, falling back to Groq:", error);
-    audioBuffer = await generateGroqSpeech(text);
+    audioBuffer = await runAiOperation(
+      "primary-speech-provider",
+      () => generateOmnivoiceSpeech(text),
+      25_000,
+    );
+  } catch {
+    console.warn("Primary speech provider failed; trying the configured fallback.");
+    audioBuffer = await runAiOperation("fallback-speech-provider", () => generateGroqSpeech(text));
   }
 
   return uploadFile(audioBuffer, `audio/${Date.now()}.wav`, "audio/wav");

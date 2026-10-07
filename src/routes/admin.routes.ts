@@ -34,10 +34,18 @@ import {
 import { listAdminComplaints } from "../controllers/adminComplaints.controller";
 import { adminAuthMiddleware, ownerOnlyMiddleware } from "../middleware/adminAuth.middleware";
 import { uploadComplaintPhotos } from "../middleware/complaintPhotos.middleware";
+import { requestPasswordRecovery, resetPassword } from "../controllers/passwordRecovery.controller";
+import {
+  loginRateLimit,
+  recoveryRequestRateLimit,
+  recoveryResetRateLimit,
+} from "../middleware/authRateLimit.middleware";
 
 const adminRouter = Router();
 
-adminRouter.post("/login", adminLogin);
+adminRouter.post("/login", loginRateLimit, adminLogin);
+adminRouter.post("/forgot-password", recoveryRequestRateLimit, requestPasswordRecovery("admin"));
+adminRouter.post("/reset-password", recoveryResetRateLimit, resetPassword("admin"));
 adminRouter.post("/refresh", adminRefresh);
 adminRouter.post("/logout", adminLogout);
 adminRouter.get("/me", adminAuthMiddleware, getAdminProfile);

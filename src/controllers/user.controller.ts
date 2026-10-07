@@ -45,7 +45,11 @@ const publicUser = (user: { _id: Types.ObjectId; email: string; name?: string })
   name: user.name,
 });
 
-async function issueTokens(userId: Types.ObjectId, res: Response): Promise<string> {
+async function issueTokens(
+  userId: Types.ObjectId,
+  authVersion: number,
+  res: Response,
+): Promise<string> {
   const refreshToken = randomBytes(64).toString("base64url");
   const expiresAt = new Date(Date.now() + cookieOptions.maxAge);
   await RefreshTokenModel.create({
@@ -55,7 +59,7 @@ async function issueTokens(userId: Types.ObjectId, res: Response): Promise<strin
     expiresAt,
   });
   res.cookie(REFRESH_COOKIE, refreshToken, cookieOptions);
-  return jwt.sign({ userId: userId.toString(), tokenType: "citizen" }, getJwtSecret(), {
+  return jwt.sign({ userId: userId.toString(), authVersion, tokenType: "citizen" }, getJwtSecret(), {
     expiresIn: ACCESS_TOKEN_EXPIRES_IN,
   });
 }
@@ -63,18 +67,29 @@ async function issueTokens(userId: Types.ObjectId, res: Response): Promise<strin
 export async function signup(req: Request, res: Response) {
 
   const { email, password, name } = req.body;
-  
-  if (!email || !password) return res.status(400).json({ error: "email and password are required" });
-  const alreadyExists = await userRepository.existsByEmail(email);
+  if (
+    typeof email !== "string" ||
+    typeof password !== "string" ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ||
+    password.length < 12 ||
+    Buffer.byteLength(password, "utf8") > 72 ||
+    (name !== undefined && (typeof name !== "string" || name.trim().length > 100))
+  ) {
+    return res.status(400).json({
+      error: "Enter a valid email, a password of at least 12 characters and no more than 72 UTF-8 bytes, and a name no longer than 100 characters.",
+    });
+  }
+  const normalizedEmail = email.trim().toLowerCase();
+  const alreadyExists = await userRepository.existsByEmail(normalizedEmail);
 
   if (alreadyExists) return res.status(409).json({ error: "Email already registered" });
   const hashedPassword = await bcrypt.hash(password, 10);
 
-  const user = await userRepository.create({ email, password: hashedPassword, name });
+  const user = await userRepository.create({ email: normalizedEmail, password: hashedPassword, name });
 
   await sessionRepository.create({ userId: user._id, guestId: null });
 
-  const token = await issueTokens(user._id, res);
+  const token = await issueTokens(user._id, user.authVersion ?? 0, res);
 
   res.status(201).json({
     accessToken: token,
@@ -99,7 +114,7 @@ export async function login(req: Request, res: Response) {
     await sessionRepository.create({ userId: user._id, guestId: null });
   }
 
-  const token = await issueTokens(user._id, res);
+  const token = await issueTokens(user._id, user.authVersion ?? 0, res);
 
   res.json({
     accessToken: token,
@@ -147,9 +162,13 @@ export async function refresh(req: Request, res: Response) {
 
   res.cookie(REFRESH_COOKIE, nextRefreshToken, cookieOptions);
   res.json({
-    accessToken: jwt.sign({ userId: user._id.toString(), tokenType: "citizen" }, getJwtSecret(), {
-      expiresIn: ACCESS_TOKEN_EXPIRES_IN,
-    }),
+    accessToken: jwt.sign(
+      { userId: user._id.toString(), authVersion: user.authVersion ?? 0, tokenType: "citizen" },
+      getJwtSecret(),
+      {
+        expiresIn: ACCESS_TOKEN_EXPIRES_IN,
+      },
+    ),
     user: publicUser(user),
   });
 }

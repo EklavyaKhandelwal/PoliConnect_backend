@@ -1,3 +1,5 @@
+import { runAiOperation } from "./aiReliability.service";
+
 export interface WebSearchSource {
   title: string;
   url: string;
@@ -39,10 +41,16 @@ export async function searchWeb(query: string): Promise<WebSearchSource[]> {
     return [];
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
+  const privateComplaintQuery =
+    /\b(?:my|track|tracking|status of)\b.{0,50}\b(?:complaint|ticket|case)\b|मेरी शिकायत|माझी तक्रार/iu.test(query);
+  if (
+    privateComplaintQuery ||
+    /\bJHS-\d{4}-\d{3,}\b|\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b|(?<!\d)(?:\+?91[\s-]?)?[6-9]\d{9}(?!\d)/iu.test(query)
+  ) {
+    return [];
+  }
 
-  try {
+  return runAiOperation("web-search", async () => {
     const response = await fetch("https://api.tavily.com/search", {
       method: "POST",
       headers: {
@@ -57,12 +65,13 @@ export async function searchWeb(query: string): Promise<WebSearchSource[]> {
         include_answer: false,
         include_raw_content: false,
       }),
-      signal: controller.signal,
+      signal: AbortSignal.timeout(10_000),
     });
 
     if (!response.ok) {
-      const details = await response.text();
-      throw new Error(`Tavily search failed: ${response.status} ${details}`);
+      const error = new Error("Web search provider request failed.");
+      Object.assign(error, { status: response.status });
+      throw error;
     }
 
     const payload = (await response.json()) as TavilyResponse;
@@ -76,7 +85,5 @@ export async function searchWeb(query: string): Promise<WebSearchSource[]> {
       }
       return [{ title: result.title, url: result.url, content: result.content }];
     });
-  } finally {
-    clearTimeout(timeout);
-  }
+  });
 }
