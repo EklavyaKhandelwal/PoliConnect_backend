@@ -39,7 +39,11 @@ import type { IMessage, Role } from "../types/common.types";
       .sort({ createdAt: -1 })
       .exec();
   }
-  async findByContextWindow( conversationId: Types.ObjectId, contextWindow?: number ): Promise<MessageDocument[]> {
+  async findByContextWindow(
+    conversationId: Types.ObjectId,
+    contextWindow?: number,
+    excludeLatestUserMessage = false,
+  ): Promise<MessageDocument[]> {
 
 
      const query = MessageModel.find({
@@ -52,6 +56,9 @@ import type { IMessage, Role } from "../types/common.types";
 
   const messages = await query.exec();
 
+  if (excludeLatestUserMessage && messages.at(0)?.role === "user") {
+    messages.shift();
+  }
   return messages.reverse();
 }
 

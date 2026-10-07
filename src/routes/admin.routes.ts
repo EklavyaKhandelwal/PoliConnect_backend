@@ -22,6 +22,9 @@ import {
   updateAdminComplaint,
 } from "../controllers/adminComplaintActions.controller";
 import { getAdminOverview } from "../controllers/adminAnalytics.controller";
+import { getAdminSettings, updateAdminSettings } from "../controllers/adminSettings.controller";
+import { getAdminNotifications } from "../controllers/adminNotifications.controller";
+import { getAdminNotificationState, markAdminNotificationsRead } from "../controllers/adminNotificationState.controller";
 import {
   listAdminComplaintFeedback,
   listAdminSuggestions,
@@ -31,15 +34,28 @@ import {
 import { listAdminComplaints } from "../controllers/adminComplaints.controller";
 import { adminAuthMiddleware, ownerOnlyMiddleware } from "../middleware/adminAuth.middleware";
 import { uploadComplaintPhotos } from "../middleware/complaintPhotos.middleware";
+import { requestPasswordRecovery, resetPassword } from "../controllers/passwordRecovery.controller";
+import {
+  loginRateLimit,
+  recoveryRequestRateLimit,
+  recoveryResetRateLimit,
+} from "../middleware/authRateLimit.middleware";
 
 const adminRouter = Router();
 
-adminRouter.post("/login", adminLogin);
+adminRouter.post("/login", loginRateLimit, adminLogin);
+adminRouter.post("/forgot-password", recoveryRequestRateLimit, requestPasswordRecovery("admin"));
+adminRouter.post("/reset-password", recoveryResetRateLimit, resetPassword("admin"));
 adminRouter.post("/refresh", adminRefresh);
 adminRouter.post("/logout", adminLogout);
 adminRouter.get("/me", adminAuthMiddleware, getAdminProfile);
 adminRouter.post("/users", adminAuthMiddleware, ownerOnlyMiddleware, createAdminAccount);
 adminRouter.get("/analytics/overview", adminAuthMiddleware, getAdminOverview);
+adminRouter.get("/settings", adminAuthMiddleware, getAdminSettings);
+adminRouter.put("/settings", adminAuthMiddleware, ownerOnlyMiddleware, updateAdminSettings);
+adminRouter.get("/notifications", adminAuthMiddleware, getAdminNotifications);
+adminRouter.get("/notifications/read-state", adminAuthMiddleware, getAdminNotificationState);
+adminRouter.patch("/notifications/read-state", adminAuthMiddleware, markAdminNotificationsRead);
 adminRouter.get("/suggestions", adminAuthMiddleware, listAdminSuggestions);
 adminRouter.patch("/suggestions/:referenceNumber", adminAuthMiddleware, updateAdminSuggestion);
 adminRouter.get("/feedback", adminAuthMiddleware, listAdminComplaintFeedback);

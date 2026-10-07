@@ -85,7 +85,7 @@ export const ownerOnlyMiddleware = (
   next: NextFunction,
 ): void => {
   if (req.admin?.role !== "owner") {
-    res.status(403).json({ error: "Only the admin owner can create admin accounts." });
+    res.status(403).json({ error: "Only the admin owner can perform this action." });
     return;
   }
   next();

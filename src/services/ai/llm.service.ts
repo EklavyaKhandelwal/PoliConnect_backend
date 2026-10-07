@@ -53,7 +53,7 @@ function normalizeReply(text: string): string {
 
 async function buildContextWindow(conversationId: Types.ObjectId): Promise<ContextMessage[]> {
 
-  const recent = await messageRepository.findByContextWindow(conversationId);
+  const recent = await messageRepository.findByContextWindow(conversationId, 12, true);
   return recent.map((m) => ({ role: m.role, content: m.contentText }));
 }
 
@@ -76,7 +76,7 @@ export async function generateReply(options: GenerateOptions): Promise<GenerateR
     try {
       sources = await searchWeb(userInputText);
     } catch (error) {
-      console.error("Web search failed; continuing without search results:", error);
+      console.warn("Web search unavailable; continuing without search results.");
     }
   }
 
@@ -173,7 +173,7 @@ Return only a valid JSON array of strings, with no markdown or extra text. Use t
     if (!Array.isArray(parsed)) return [];
     return parsed.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, 3);
   } catch {
-    console.error("Failed to parse generated follow-up questions:", text);
+    console.warn("Generated follow-up questions were not valid JSON.");
     return [];
   }
 }

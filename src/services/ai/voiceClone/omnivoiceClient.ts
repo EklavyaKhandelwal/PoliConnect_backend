@@ -42,8 +42,6 @@ export async function generateOmnivoiceSpeech(text: string): Promise<Buffer> {
   });
 
   const data = result.data as any;
-  console.log("OmniVoice raw response:", JSON.stringify(data));
-
   const audioInfo = Array.isArray(data) ? data[0] : data;
   const audioUrl: string | undefined = audioInfo?.url ?? audioInfo?.path;
 

@@ -33,6 +33,12 @@ const userSchema = new Schema<IUser>(
       minLength: [6, "Password must be at least 6 characters long."],
       select: false,
     },
+    authVersion: {
+      type: Number,
+      required: true,
+      default: 0,
+      min: 0,
+    },
   },
   {
     timestamps: true,
