@@ -7,6 +7,7 @@ import {
 } from "../models/complaint.model";
 import { getLLMProvider } from "../services/ai/providers/providerFactory";
 import { needsWebSearch, searchWeb } from "../services/ai/webSearch.service";
+import { isAffirmativeVoiceConfirmation } from "../services/voiceCallConfirmation";
 import type { ContextMessage, Language, Role } from "../types/common.types";
 
 const LANGUAGES = new Set<Language>(["en", "hi", "mr"]);
@@ -42,6 +43,35 @@ const missingFields = (d: VoiceComplaintDraft | undefined): DraftKey[] => {
 };
 
 const completeComplaintDraft = (d: VoiceComplaintDraft) => missingFields(d).length === 0;
+
+const nextComplaintQuestion = (language: Language, draft: VoiceComplaintDraft) => {
+  const nextField = missingFields(draft)[0];
+  if (!nextField) return "";
+  const questions: Record<Language, Record<DraftKey, string>> = {
+    en: {
+      details: "What problem would you like to report?",
+      category: "Which category best describes it: road, water, electricity, cleanliness, health, ration or pension, education, or other?",
+      area: "Which area or nearby landmark is affected?",
+      name: "What name would you like to use as the contact for this complaint?",
+      phone: "What reachable 10-digit phone number should I include?",
+    },
+    hi: {
+      details: "आप किस समस्या की शिकायत दर्ज करना चाहते हैं?",
+      category: "यह किस श्रेणी में आता है: सड़क, पानी, बिजली, सफ़ाई, स्वास्थ्य, राशन या पेंशन, शिक्षा, या अन्य?",
+      area: "यह समस्या किस इलाके या नज़दीकी पहचान-स्थल में है?",
+      name: "इस शिकायत के संपर्क नाम के रूप में आप कौन-सा नाम देना चाहते हैं?",
+      phone: "इस शिकायत के लिए कौन-सा 10 अंकों का संपर्क फ़ोन नंबर दर्ज करूँ?",
+    },
+    mr: {
+      details: "तुम्हाला कोणत्या समस्येची तक्रार नोंदवायची आहे?",
+      category: "ही कोणत्या प्रकारची तक्रार आहे: रस्ता, पाणी, वीज, स्वच्छता, आरोग्य, रेशन किंवा पेन्शन, शिक्षण, की इतर?",
+      area: "ही समस्या कोणत्या परिसरात किंवा जवळच्या ठिकाणी आहे?",
+      name: "या तक्रारीसाठी संपर्काचे नाव म्हणून कोणते नाव द्यायचे आहे?",
+      phone: "या तक्रारीसाठी कोणता उपलब्ध १० अंकी फोन नंबर नोंदवू?",
+    },
+  };
+  return questions[language][nextField];
+};
 
 const isVoiceComplaintDraft = (value: unknown): value is VoiceComplaintDraft => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -87,11 +117,6 @@ const isClearFilingDecline = (message: string) =>
     message,
   );
 
-const isAffirmativeConfirmation = (message: string) =>
-  /^(?:yes(?: please| submit(?: it| my complaint)?| go ahead| that's right| i confirm)?|yeah(?: please| submit(?: it)?| go ahead| that's right)?|yep|correct|that's right|that is right|i confirm|confirm(?: it| my complaint)?|submit(?: it| my complaint)?|go ahead(?: and submit)?|do it|please do(?: it)?|proceed|proceed with it|go for it|sure|haan(?: ji)?|han(?: ji)?|हाँ(?: जी| सही है| मैं पुष्टि करता हूँ| मैं पुष्टि करती हूँ| जमा करें| दर्ज करें| कर दीजिए| कर दो)?|हां(?: जी| सही है| जमा करें| दर्ज करें| कर दीजिए| कर दो)?|जी(?: हाँ| हां)?|कर दीजिए|कर दो|दर्ज करें|हो(?:य)?|होय|हो नोंदवा|बरोबर|नोंदवा|करा)[\s]*$/iu.test(
-    message.trim().replace(/[.!?,]+/gu, " ").replace(/\s+/gu, " "),
-  );
-
 const filingDeclineReply = (language: Language) => {
   if (language === "hi") return "ठीक है। अभी कुछ दर्ज करने की ज़रूरत नहीं है। आप कोई और सवाल पूछ सकते हैं।";
   if (language === "mr") return "ठीक आहे. आत्ता काही नोंदवण्याची गरज नाही. तुम्ही दुसरा प्रश्न विचारू शकता.";
@@ -106,6 +131,11 @@ const isComplaintFlow = (message: string, draft: VoiceComplaintDraft | undefined
   confirmationPending ||
   Boolean(draft && Object.keys(draft).length > 0) ||
   /\b(?:complaint|ticket|status|track|file|submit|report|my issue|my problem|water supply|electricity supply)\b|शिकायत|तक्रार|तक्रारी|तक्रारीचा|अर्ज|माझी तक्रार|मेरी शिकायत/iu.test(message);
+
+const isComplaintIntakeTurn = (message: string) =>
+  /\b(?:file|submit|register|raise|make|report)\s+(?:a|my|the)?\s*(?:complaint|report|issue|problem)\b|\b(?:i have|my)\s+(?:a\s+)?(?:complaint|issue|problem)\b|\b(?:complaint|issue|problem)\s+about\b|\bi(?:'m| am)\s+(?:facing|having)\s+(?:a\s+)?(?:problem|issue)\b|शिकायत.{0,20}(?:दर्ज|करनी|है)|मुझे शिकायत|मेरी शिकायत|तक्रार.{0,20}(?:नोंद|करायची)|माझी तक्रार/iu.test(
+    message,
+  );
 
 const confirmationPrompt = (language: Language, draft: VoiceComplaintDraft) => {
   const categoryNames: Record<Language, Record<ComplaintCategory, string>> = {
@@ -216,11 +246,13 @@ FILING A COMPLAINT
 - The complaint contact name and phone are supplied by the caller and are independent of their signed-in account profile. Never assume, copy, require, or compare them against the account name or any account phone number. Ask which contact name and reachable exactly-10-digit phone number the caller wants associated with this complaint; accept a different name or number. If they refuse to provide the required contact details, do not submit.
 - Name is required. Ask: "May I have the name you want on this complaint?" Never ask about hiding or keeping the name private. If they refuse to give a name, explain politely that a name is needed to file, and do not submit.
 - Phone is required (exactly 10 digits). If they refuse, do not submit.
-- First apply the caller's latest reply to the draft (they may answer several things at once). Then ask only for the FIRST field that is still missing. NEVER ask again for a field already in the draft.
+- On every turn, extract all complaint facts the caller has actually provided into the draft, including when they provide several details at once. Keep names and phone digits exact; never guess a missing value.
+- The app selects and asks for the next missing field. Do not list multiple missing fields or tell the caller that they failed to provide details.
+- If asked to correct a detail, update only that detail and preserve all other collected fields.
 - Fields missing before this reply: ${missing.length ? missing.join(", ") : "none"}.
-- If the caller corrects something, change only that field and keep the rest.
 - Write details and area in ${lang}, translating faithfully without adding or removing facts. Keep names and phone digits exact.
 - When nothing is missing, read back category, details, area, name and the FULL phone number (say the digits slowly in small groups, never mask them), then ask the caller to confirm. Never say the complaint is submitted; the app submits after a clear yes.
+- At confirmation, accept a clear natural yes such as "yes", "yeah", "sure", "go ahead", "submit it", or the equivalent in ${lang}. Treat "no", "not yet", or a requested change as no consent; ask for clarification only if the answer is genuinely ambiguous.
 - If the caller declines a pending confirmation, ask what they want to change.
 
 SAFETY
@@ -358,7 +390,7 @@ export const respondToVoiceCall = async (
       confirmationPending === true &&
       previousDraft !== undefined &&
       completeComplaintDraft(previousDraft) &&
-      isAffirmativeConfirmation(message)
+      isAffirmativeVoiceConfirmation(message)
     ) {
       res.json({
         success: true,
@@ -465,8 +497,10 @@ export const respondToVoiceCall = async (
         : "continue";
     const reply = action === "confirm"
       ? confirmationPrompt(language as Language, draft)
-      : confirmationPending === true
+      : confirmationPending === true && canConfirm
         ? confirmationClarification(language as Language)
+      : (hasAnyField || isComplaintIntakeTurn(message.trim())) && !canConfirm
+        ? nextComplaintQuestion(language as Language, draft)
       : isPrematureSubmissionClaim(structuredReply.reply)
         ? notSubmittedReply(language as Language)
         : structuredReply.reply.replace(/\*\*/g, "").trim();
